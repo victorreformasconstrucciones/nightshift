@@ -30,7 +30,7 @@ function Open-Fishing {
     [System.Windows.Forms.Application]::EnableVisualStyles()
     
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'NightShift — Рыбалка'
+    $form.Text = 'NightShift by Transport — Рыбалка'
     $form.ClientSize = New-Object System.Drawing.Size(900, 570)
     $form.MinimumSize = $form.Size
     $form.BackColor = [System.Drawing.Color]::FromArgb(18, 19, 24)
@@ -138,7 +138,7 @@ function Open-Fishing {
 }
 $jobs = @('Рыбалка','Лесоруб','Карьер','Стройка','Охотник','Фермер','Грибник','Качалка','Швейка','Таксист','Угонщик')
 $window = [System.Windows.Forms.Form]::new()
-$window.Text = 'NightShift'
+$window.Text = 'NightShift by Transport'
 $window.ClientSize = [System.Drawing.Size]::new(1220, 695)
 $window.StartPosition = 'CenterScreen'
 $window.BackColor = [System.Drawing.Color]::FromArgb(16,17,21)
@@ -159,7 +159,7 @@ function Select-Job([int]$index) {
     if ($index -eq 0) { Open-Fishing; return }
     [void][System.Windows.Forms.MessageBox]::Show($window,'Раздел пока в разработке.',$jobs[$index])
 }
-Add-Text $window 'NightShift' 20 28 158 45 20
+Add-Text $window 'NightShift by Transport' 16 28 168 45 12
 $hero = [System.Windows.Forms.Panel]::new()
 $hero.SetBounds(194,16,1008,176)
 $hero.BackgroundImage = Get-Art 0
