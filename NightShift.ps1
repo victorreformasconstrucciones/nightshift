@@ -25,115 +25,152 @@ function Get-Art([int]$index) {
     } finally { $stream.Dispose() }
 }
 function Open-Fishing {
-    Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -AssemblyName System.Drawing
-    [System.Windows.Forms.Application]::EnableVisualStyles()
-    
-    $form = New-Object System.Windows.Forms.Form
+    $form = [System.Windows.Forms.Form]::new()
     $form.Text = 'NightShift by Transport — Рыбалка'
-    $form.ClientSize = New-Object System.Drawing.Size(900, 570)
-    $form.MinimumSize = $form.Size
-    $form.BackColor = [System.Drawing.Color]::FromArgb(18, 19, 24)
-    $form.ForeColor = [System.Drawing.Color]::WhiteSmoke
-    $form.Font = New-Object System.Drawing.Font('Segoe UI', 11)
+    $form.ClientSize = [System.Drawing.Size]::new(780,655)
     $form.StartPosition = 'CenterParent'
-    
-    $menu = New-Object System.Windows.Forms.ListBox
-    $menu.SetBounds(20, 25, 210, 515)
-    $menu.BackColor = [System.Drawing.Color]::FromArgb(34, 35, 43)
-    $menu.ForeColor = [System.Drawing.Color]::WhiteSmoke
-    $menu.Items.AddRange([object[]]@('Рыбалка','Лесоруб','Карьер','Стройка','Охотник','Фермер','Грибник','Качалка','Швейка','Таксист','Угонщик'))
-    $form.Controls.Add($menu)
-    
-    function Add-Label($text, $x, $y, $width, $height, $size) {
-        $label = New-Object System.Windows.Forms.Label
-        $label.Text = $text
-        $label.SetBounds($x, $y, $width, $height)
-        $label.Font = New-Object System.Drawing.Font('Segoe UI', $size)
-        $form.Controls.Add($label)
-        return $label
+    $form.BackColor = $window.BackColor
+    $form.ForeColor = $window.ForeColor
+    $form.Font = $window.Font
+    $form.KeyPreview = $true
+    $form.AutoScroll = $true
+    Add-Text $form 'Рыбалка · офлайн-тренажёр' 22 15 730 45 21
+
+    function Add-Option($type,$caption,$x,$y,$w,$h) {
+        $control = New-Object "System.Windows.Forms.$type"
+        $control.SetBounds($x,$y,$w,$h)
+        $control.Text = $caption
+        $form.Controls.Add($control)
+        return ,$control
     }
-    
-    $title = Add-Label 'Рыбалка' 260 28 600 65 30
-    $status = Add-Label '' 263 125 600 90 18
-    $stats = Add-Label '' 263 238 600 50 14
-    
-    function Add-Button($text, $x, $color) {
-        $button = New-Object System.Windows.Forms.Button
-        $button.Text = $text
-        $button.SetBounds($x, 325, 175, 52)
-        $button.FlatStyle = 'Flat'
-        $button.BackColor = $color
-        $form.Controls.Add($button)
-        return $button
+
+    $location = Add-Option ComboBox '' 410 76 320 30
+    $location.DropDownStyle = 'DropDownList'
+    $location.Items.AddRange([object[]]@('С берега','С лодки'))
+    $location.SelectedIndex = 0
+    Add-Text $form 'Место рыбалки' 24 76 350 30 11
+    $fish = Add-Option CheckedListBox '' 410 115 320 90
+    $fish.CheckOnClick = $true
+    foreach ($name in @('Окунь','Карп','Щука','Сом')) { [void]$fish.Items.Add($name,$true) }
+    Add-Text $form 'Отметь рыбу, которую хочешь забрать' 24 118 370 46 11
+
+    Add-Text $form 'Скорость решения' 24 220 370 28 11
+    Add-Text $form 'Скорость нового заброса' 24 270 370 28 11
+    $decision = Add-Option TrackBar '' 405 210 325 48
+    $cast = Add-Option TrackBar '' 405 260 325 48
+    foreach ($slider in @($decision,$cast)) { $slider.Maximum = 100; $slider.TickFrequency = 10 }
+    $decision.Value = 50
+    $cast.Value = 80
+    $overload = Add-Option CheckBox 'Остановиться при перегрузе (10 кг)' 24 315 365 32
+    $overload.Checked = $true
+    $trunk = Add-Option CheckBox 'Складывать рыбу в багажник' 405 315 335 32
+    $care = Add-Option CheckBox 'Пополнять еду, воду и здоровье' 24 352 365 32
+    $bait = Add-Option ComboBox '' 410 393 320 30
+    $bait.DropDownStyle = 'DropDownList'
+    $bait.Items.AddRange([object[]]@('Оставить как есть','Переустановить','Сменить на другую'))
+    $bait.SelectedIndex = 0
+    Add-Text $form 'Приманка после 7 поклёвок' 24 395 370 28 11
+    $status = Add-Option Label 'Готово к запуску' 24 447 720 38
+    $stats = Add-Option Label '' 24 490 720 52
+    $start = Add-Option Button 'Запустить' 24 565 160 42
+    $stop = Add-Option Button 'Остановить' 200 565 160 42
+    $hook = Add-Option Button 'Подсечь' 376 565 160 42
+    foreach ($button in @($start,$stop,$hook)) { $button.FlatStyle = 'Flat'; $button.BackColor = $accent }
+    Add-Text $form 'Shift+2 — запуск / стоп     Shift+3 — вернуться в каталог' 24 620 730 28 10
+    $hook.Enabled = $false
+    $stop.Enabled = $false
+
+    $timer = [System.Windows.Forms.Timer]::new()
+    $timer.Interval = 50
+    $clock = [System.Diagnostics.Stopwatch]::new()
+    $rng = [Random]::new()
+    $state = @{ Phase='wait'; Due=0; Bites=0; Kept=0; Kg=0; Trunk=0; Bait=0; Fish=0; Food=100; Water=100; Health=100 }
+    function Update-Stats {
+        $stats.Text = "Улов: $($state.Kept)    Сумка: $($state.Kg) кг    Багажник: $($state.Trunk) кг    Приманка: $($state.Bait + 1)`r`nЕда: $($state.Food)    Вода: $($state.Water)    Здоровье: $($state.Health)"
     }
-    
-    $red = [System.Drawing.Color]::FromArgb(159, 20, 55)
-    $gray = [System.Drawing.Color]::FromArgb(42, 43, 52)
-    $start = Add-Button 'Запустить' 263 $red
-    $stop = Add-Button 'Остановить' 454 $gray
-    $hook = Add-Button 'Подсечь' 645 $red
-    $timer = New-Object System.Windows.Forms.Timer
-    $timer.Interval = 100
-    $clock = New-Object System.Diagnostics.Stopwatch
-    $session = @{ Catch = 0; Due = 0; Biting = $false }
-    $random = New-Object Random
-    
-    function Reset-Cast {
-        $session.Biting = $false
-        $session.Due = $clock.ElapsedMilliseconds + $random.Next(1800, 5500)
-        $hook.Enabled = $false
-        $status.Text = 'Ожидание поклёвки…'
-    }
-    function Stop-Fishing {
+    function Stop-Training {
         $timer.Stop()
         $clock.Stop()
         $start.Enabled = $true
         $stop.Enabled = $false
         $hook.Enabled = $false
     }
-    $timer.Add_Tick({
-        $elapsed = $clock.ElapsedMilliseconds
-        $stats.Text = 'Улов: {0}     Время: {1:mm\:ss}' -f $session.Catch, $clock.Elapsed
-        if ($elapsed -ge $session.Due) {
-            if ($session.Biting) {
-                Reset-Cast
-                $status.Text = 'Рыба сорвалась. Новый заброс…'
-            } else {
-                $session.Biting = $true
-                $session.Due = $elapsed + 1200
-                $hook.Enabled = $true
-                $status.Text = 'Клюёт! Подсекай.'
-            }
-        }
-    })
+    function Set-Phase($phase,$delay,$message) {
+        $state.Phase = $phase
+        $state.Due = $clock.ElapsedMilliseconds + $delay
+        $status.Text = $message
+        $hook.Enabled = $phase -eq 'bite'
+    }
+    function Start-Cast($message) {
+        $delay = if ($location.SelectedIndex -eq 0) { $rng.Next(1800,5000) } else { $rng.Next(1000,3500) }
+        Set-Phase 'wait' $delay $message
+    }
     $start.Add_Click({
-        $session.Catch = 0
         $clock.Restart()
-        Reset-Cast
+        Start-Cast 'Ожидаем поклёвку…'
         $start.Enabled = $false
         $stop.Enabled = $true
         $timer.Start()
     })
-    $stop.Add_Click({ Stop-Fishing; $status.Text = 'Тренировка остановлена' })
+    $stop.Add_Click({ Stop-Training; $status.Text = 'Тренировка остановлена.' })
     $hook.Add_Click({
-        if ($timer.Enabled -and $session.Biting -and $clock.ElapsedMilliseconds -lt $session.Due) {
-            $session.Catch++
-            Reset-Cast
-            $status.Text = 'Поймал! Новый заброс…'
+        if ($state.Phase -eq 'bite' -and $clock.ElapsedMilliseconds -lt $state.Due) {
+            Set-Phase 'decide' (1100 - 10 * $decision.Value) "Поймана рыба: $($fish.Items[$state.Fish])."
         }
     })
-    $menu.Add_SelectedIndexChanged({
-        Stop-Fishing
-        $title.Text = [string]$menu.SelectedItem
-        $fishing = $menu.SelectedIndex -eq 0
-        $start.Visible = $stop.Visible = $hook.Visible = $stats.Visible = $fishing
-        $stats.Text = 'Улов: 0     Время: 00:00'
-        if ($fishing) { $status.Text = 'Офлайн-тренажёр. Нажми «Запустить».' }
-        else { $status.Text = 'Раздел пока в разработке.' }
+    $timer.Add_Tick({
+        if ($clock.ElapsedMilliseconds -lt $state.Due) { return }
+        switch ($state.Phase) {
+            'wait' {
+                $state.Bites++
+                $state.Fish = $rng.Next($fish.Items.Count)
+                if ($state.Bites % 7 -eq 0) {
+                    switch ($bait.SelectedIndex) {
+                        1 { $status.Text = 'Приманка переустановлена.' }
+                        2 { $state.Bait = ($state.Bait + 1) % 3 }
+                    }
+                }
+                Set-Phase 'bite' 1500 'Клюёт! Нажми «Подсечь».'
+                Update-Stats
+            }
+            'bite' { Start-Cast 'Рыба сорвалась. Новый заброс…' }
+            'decide' {
+                $message = 'Рыба отпущена.'
+                if ($fish.GetItemChecked($state.Fish)) {
+                    $state.Kept++
+                    $weight = $state.Fish + 1
+                    if ($trunk.Checked) { $state.Trunk += $weight } else { $state.Kg += $weight }
+                    $message = 'Рыба добавлена в улов.'
+                }
+                $state.Food = [Math]::Max(0,$state.Food - 5)
+                $state.Water = [Math]::Max(0,$state.Water - 7)
+                if ($state.Food -eq 0 -or $state.Water -eq 0) { $state.Health = [Math]::Max(0,$state.Health - 10) }
+                if ($care.Checked) {
+                    foreach ($resource in @('Food','Water','Health')) {
+                        if ($state[$resource] -le 30) { $state[$resource] = 100 }
+                    }
+                }
+                Update-Stats
+                if ($overload.Checked -and $state.Kg -ge 10) {
+                    Stop-Training
+                    $status.Text = 'Перегруз. Тренировка остановлена.'
+                } else { Set-Phase 'recast' (1700 - 15 * $cast.Value) $message }
+            }
+            'recast' { Start-Cast 'Новый заброс. Ожидаем поклёвку…' }
+        }
     })
-    $menu.SelectedIndex = 0
-    try { [void]$form.ShowDialog() }
+    $form.Add_KeyDown({
+        param($sender,$eventArgs)
+        if ($eventArgs.Shift -and $eventArgs.KeyCode -eq 'D2') {
+            $eventArgs.SuppressKeyPress = $true
+            if ($timer.Enabled) { $stop.PerformClick() } else { $start.PerformClick() }
+        } elseif ($eventArgs.Shift -and $eventArgs.KeyCode -eq 'D3') {
+            $eventArgs.SuppressKeyPress = $true
+            $form.Close()
+        }
+    })
+    Update-Stats
+    try { [void]$form.ShowDialog($window) }
     finally { $timer.Dispose(); $form.Dispose() }
 }
 $jobs = @('Рыбалка','Лесоруб','Карьер','Стройка','Охотник','Фермер','Грибник','Качалка','Швейка','Таксист','Угонщик')
